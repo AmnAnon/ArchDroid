@@ -330,40 +330,61 @@ umount_staging() {
 validate_staging_rootfs() {
     local staging_dir="$1"
 
-    info "Validating staged rootfs using inspection system..."
+    info "Validating staged rootfs..."
     echo "VALIDATE: Starting rootfs validation" >> "$BOOTSTRAP_LOG"
 
-    # Mount essential filesystems so the chroot test can actually execute
+    # 1. File presence checks — fast, no execution needed
+    local critical_paths=("bin/bash" "usr/bin/env" "etc/pacman.conf" "lib")
+    for path in "${critical_paths[@]}"; do
+        if [ ! -e "$staging_dir/$path" ]; then
+            fail "Critical path missing in staged rootfs: $path"
+            echo "FATAL: Missing: $path" >> "$BOOTSTRAP_LOG"
+            return 1
+        fi
+    done
+    ok "Staged rootfs: all critical paths present"
+
+    # 2. Chroot execution test — mount essentials first so bash can actually run
     mount_staging "$staging_dir"
-    # Guarantee unmount even if validation fails or script is interrupted
     trap "umount_staging '$staging_dir'" RETURN
 
-    # inspect-runtime.sh writes its JSON to $STATE_DIR/runtime-snapshot.json
-    local inspect_json="${STATE_DIR}/runtime-snapshot.json"
-    local inspect_exit=0
-    ARCH_PATH="$staging_dir" ARCHDROID_AUTO_FIX=0 \
-        "${SCRIPT_DIR}/inspect-runtime.sh" >/dev/null 2>&1 || inspect_exit=$?
+    local chroot_ok=false
+    if chroot "$staging_dir" /bin/bash -c 'echo ok' >/dev/null 2>&1; then
+        chroot_ok=true
+    elif chroot "$staging_dir" /bin/sh -c 'echo ok' >/dev/null 2>&1; then
+        chroot_ok=true
+    elif chroot "$staging_dir" /usr/bin/env true >/dev/null 2>&1; then
+        chroot_ok=true
+    fi
 
-    local status
-    status=$(safe_json_int "$inspect_json" ".overall_status" "2")
-    rm -f "$inspect_json"
+    if [ "$chroot_ok" = true ]; then
+        ok "Staged rootfs: chroot execution test PASSED"
+        echo "SUCCESS: Staging chroot test passed" >> "$BOOTSTRAP_LOG"
+        return 0
+    fi
 
-    case "$status" in
-        0)
-            ok "Staged rootfs validation: PASSED"
-            echo "SUCCESS: Rootfs validation passed" >> "$BOOTSTRAP_LOG"
-            ;;
-        1)
-            warn "Staged rootfs validation: WARNINGS (acceptable)"
-            echo "WARN: Rootfs has warnings but acceptable" >> "$BOOTSTRAP_LOG"
-            ;;
-        *)
-            fail "Staged rootfs validation: FAILED"
-            echo "FATAL: Rootfs validation failed (inspect exit: $inspect_exit)" >> "$BOOTSTRAP_LOG"
-            return 1
-            ;;
-    esac
-    return 0
+    # Chroot failed — diagnose before giving up
+    fail "Staged rootfs: chroot execution test FAILED"
+
+    # Check ELF interpreter is present
+    local interp
+    interp=$(readelf -l "$staging_dir/bin/bash" 2>/dev/null \
+        | awk '/interpreter/ {gsub(/[\[\]]/,""); print $NF}')
+    if [ -n "$interp" ] && [ ! -f "$staging_dir$interp" ]; then
+        fail "ELF interpreter missing: $interp"
+        fail "Rootfs extraction may be incomplete"
+    fi
+
+    # Check SELinux — most common cause on Android
+    local selinux_mode
+    selinux_mode=$(getenforce 2>/dev/null || echo "unknown")
+    if [ "$selinux_mode" = "Enforcing" ]; then
+        warn "SELinux is Enforcing — this is the most likely cause"
+        warn "Run: setenforce 0   then retry: archdroid bootstrap"
+    fi
+
+    echo "FATAL: Staging chroot test failed (SELinux: $selinux_mode)" >> "$BOOTSTRAP_LOG"
+    return 1
 }
 
 # ─── ATOMIC INSTALLATION ─────────────────────────────────────────────────────
