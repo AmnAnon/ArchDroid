@@ -56,11 +56,19 @@ chmod +x "$INSTALL_DIR/archdroid"
 chmod +x "$INSTALL_DIR/core/"*.sh
 chmod +x "$INSTALL_DIR/test/"*.sh 2>/dev/null || true
 
-# Install CLI to PATH
+# Install CLI to PATH — always re-create symlink to ensure it points to current install
 mkdir -p /data/local/bin
+rm -f "$BIN_PATH"
 ln -sf "$INSTALL_DIR/archdroid" "$BIN_PATH"
 chmod +x "$BIN_PATH"
-ok "CLI installed → $BIN_PATH"
+
+# Verify symlink resolves correctly
+resolved=$(readlink -f "$BIN_PATH" 2>/dev/null || true)
+if [ "$resolved" = "$INSTALL_DIR/archdroid" ]; then
+    ok "CLI installed → $BIN_PATH → $INSTALL_DIR/archdroid"
+else
+    warn "Symlink may be wrong: $BIN_PATH → $resolved (expected $INSTALL_DIR/archdroid)"
+fi
 
 # Add /data/local/bin to PATH — write to shell config automatically
 if ! echo "$PATH" | grep -q "/data/local/bin"; then

@@ -92,7 +92,7 @@ cmd_up() {
     else
         # Rootfs exists — check if it's ArchDroid-managed before doing anything
         local current_version
-        current_version=$(get_current_version "/data/local/archdroid-state" 2>/dev/null || echo "none")
+        current_version=$(get_current_version "$ARCH_PATH" 2>/dev/null || echo "none")
         if [ "$current_version" = "none" ] && [ "${ARCHDROID_FORCE:-0}" != "1" ]; then
             echo ""
             fail "Existing Arch installation detected at: $ARCH_PATH"
@@ -221,7 +221,7 @@ cmd_status() {
     # Installation status — check both presence and chroot validity
     if [ -f "$ARCH_PATH/bin/bash" ]; then
         local current_version
-        current_version=$(get_current_version "/data/local/archdroid-state" 2>/dev/null || echo "none")
+        current_version=$(get_current_version "$ARCH_PATH" 2>/dev/null || echo "none")
 
         # Quick chroot smoke-test to distinguish "files present" from "actually works"
         if chroot "$ARCH_PATH" /bin/bash -c 'echo ok' >/dev/null 2>&1; then
