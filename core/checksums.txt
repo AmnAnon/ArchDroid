@@ -1,0 +1,15 @@
+# ArchDroid Checksums Database
+# Format: filename sha256
+# This file serves as the trust anchor - keep it separate from code
+# Verify signatures on this file in production environments
+
+ArchLinuxARM-aarch64-2024-03-31.tar.gz PLACEHOLDER_REPLACE_WITH_REAL_SHA256
+ArchLinuxARM-aarch64-2024-02-01.tar.gz PLACEHOLDER_REPLACE_WITH_REAL_SHA256
+ArchLinuxARM-aarch64-2024-01-01.tar.gz PLACEHOLDER_REPLACE_WITH_REAL_SHA256
+
+# Instructions for updating:
+# 1. Download official release
+# 2. Verify upstream signature (if available)
+# 3. Compute SHA256: sha256sum ArchLinuxARM-aarch64-YYYY-MM-DD.tar.gz
+# 4. Add entry above
+# 5. Test bootstrap with new version
