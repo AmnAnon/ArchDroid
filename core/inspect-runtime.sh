@@ -569,11 +569,12 @@ main() {
         echo ""
     } > "$INSPECT_LOG"
 
-    # Run all validations
-    validate_rootfs
-    validate_mounts
-    validate_network
-    validate_security
+    # Run all validations — use || true so set -e doesn't abort on a failed
+    # check; each validator updates COMPONENT_STATUS independently.
+    validate_rootfs   || true
+    validate_mounts   || true
+    validate_network  || true
+    validate_security || true
 
     # Generate JSON output
     generate_json_output
