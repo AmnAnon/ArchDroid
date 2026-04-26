@@ -171,18 +171,28 @@ download_rootfs() {
     ok "Downloaded rootfs successfully"
     echo "SUCCESS: Rootfs downloaded" >> "$BOOTSTRAP_LOG"
 
-    # Download SHA256 checksum file
+    # Download checksum — try SHA256 first, fall back to MD5
     local sha256_file="${tarfile}.sha256"
-    info "Downloading SHA256 checksum..."
-    if ! "$curl_bin" -L --fail --retry 3 --connect-timeout 10 --max-time 30 \
-        -o "$sha256_file" "${ARCH_URL_PRIMARY}.sha256" 2>&1; then
-        fail "Failed to download SHA256 checksum file"
-        echo "FATAL: SHA256 download failed" >> "$BOOTSTRAP_LOG"
-        return 1
-    fi
+    local md5_file="${tarfile}.md5"
 
-    ok "Downloaded SHA256 checksum"
-    echo "SUCCESS: SHA256 checksum downloaded" >> "$BOOTSTRAP_LOG"
+    info "Downloading SHA256 checksum..."
+    if "$curl_bin" -L --fail --silent --retry 3 --connect-timeout 10 --max-time 30 \
+        -o "$sha256_file" "${ARCH_URL_PRIMARY}.sha256" 2>/dev/null; then
+        ok "Downloaded SHA256 checksum"
+        echo "CHECKSUM: SHA256 downloaded" >> "$BOOTSTRAP_LOG"
+    else
+        warn "SHA256 not available from mirror — trying MD5..."
+        echo "WARN: SHA256 not available, falling back to MD5" >> "$BOOTSTRAP_LOG"
+        if "$curl_bin" -L --fail --silent --retry 3 --connect-timeout 10 --max-time 30 \
+            -o "$md5_file" "${ARCH_URL_PRIMARY}.md5" 2>/dev/null; then
+            ok "Downloaded MD5 checksum (SHA256 not available on this mirror)"
+            echo "CHECKSUM: MD5 downloaded (fallback)" >> "$BOOTSTRAP_LOG"
+        else
+            fail "No checksum file available from mirror (tried SHA256 and MD5)"
+            echo "FATAL: No checksum available" >> "$BOOTSTRAP_LOG"
+            return 1
+        fi
+    fi
     return 0
 }
 
@@ -190,6 +200,7 @@ download_rootfs() {
 verify_download() {
     local tarfile="$1"
     local sha256_file="${tarfile}.sha256"
+    local md5_file="${tarfile}.md5"
 
     info "Verifying download integrity..."
 
@@ -205,38 +216,48 @@ verify_download() {
         return 1
     fi
 
-    if [ ! -f "$sha256_file" ]; then
-        fail "SHA256 checksum file not found: $sha256_file"
-        echo "FATAL: SHA256 file not found: $sha256_file" >> "$BOOTSTRAP_LOG"
-        return 1
-    fi
-
     local filesize
     filesize=$(stat -c %s "$tarfile")
     ok "File size: $(numfmt --to=iec "$filesize")"
     echo "INFO: File size: $filesize bytes" >> "$BOOTSTRAP_LOG"
 
-    # SHA256 verification
-    info "Verifying SHA256 checksum..."
     local download_dir
     download_dir=$(dirname "$tarfile")
 
-    if (cd "$download_dir" && sha256sum -c "$(basename "$sha256_file")" 2>/dev/null); then
-        ok "SHA256 verification: PASSED"
-        echo "SUCCESS: SHA256 checksum verified" >> "$BOOTSTRAP_LOG"
-
-        local sha256_hash
-        sha256_hash=$(awk '{print $1}' "$sha256_file")
-        echo "SHA256_HASH: $sha256_hash" >> "$BOOTSTRAP_LOG"
-
-        return 0
+    # Verify with whichever checksum file was downloaded
+    if [ -f "$sha256_file" ]; then
+        info "Verifying SHA256 checksum..."
+        if (cd "$download_dir" && sha256sum -c "$(basename "$sha256_file")" 2>/dev/null); then
+            local hash
+            hash=$(awk '{print $1}' "$sha256_file")
+            ok "SHA256 verification: PASSED"
+            echo "SUCCESS: SHA256 verified — $hash" >> "$BOOTSTRAP_LOG"
+            return 0
+        else
+            fail "SHA256 verification: FAILED — corrupted download or tampering"
+            echo "FATAL: SHA256 verification failed" >> "$BOOTSTRAP_LOG"
+            rm -f "$tarfile" "$sha256_file"
+            return 1
+        fi
+    elif [ -f "$md5_file" ]; then
+        info "Verifying MD5 checksum (SHA256 not available from this mirror)..."
+        warn "MD5 is weaker than SHA256 — consider verifying manually"
+        if (cd "$download_dir" && md5sum -c "$(basename "$md5_file")" 2>/dev/null); then
+            local hash
+            hash=$(awk '{print $1}' "$md5_file")
+            ok "MD5 verification: PASSED"
+            echo "SUCCESS: MD5 verified (fallback) — $hash" >> "$BOOTSTRAP_LOG"
+            return 0
+        else
+            fail "MD5 verification: FAILED — corrupted download or tampering"
+            echo "FATAL: MD5 verification failed" >> "$BOOTSTRAP_LOG"
+            rm -f "$tarfile" "$md5_file"
+            return 1
+        fi
     else
-        fail "SHA256 verification: FAILED"
-        fail "This indicates corrupted download or network tampering"
-        echo "FATAL: SHA256 verification failed" >> "$BOOTSTRAP_LOG"
-
-        rm -f "$tarfile" "$sha256_file"
-        echo "CLEANUP: Removed corrupted files" >> "$BOOTSTRAP_LOG"
+        fail "No checksum file found — cannot verify integrity"
+        echo "FATAL: No checksum file available for verification" >> "$BOOTSTRAP_LOG"
+        rm -f "$tarfile"
         return 1
     fi
 }
@@ -401,16 +422,22 @@ atomic_install() {
     if [ -f "$target_dir/bin/bash" ] && [ -f "$target_dir/etc/pacman.conf" ]; then
         ok "Installation verification: PASSED"
 
-        # Extract SHA256 hash for version lock
+        # Extract hash for version lock — prefer SHA256, fall back to MD5
         local sha256_file="${tarfile}.sha256"
-        local sha256_hash="unknown"
+        local md5_file="${tarfile}.md5"
+        local checksum_hash="unknown"
+        local checksum_type="none"
         if [ -f "$sha256_file" ]; then
-            sha256_hash=$(awk '{print $1}' "$sha256_file" 2>/dev/null || echo "unknown")
+            checksum_hash=$(awk '{print $1}' "$sha256_file" 2>/dev/null || echo "unknown")
+            checksum_type="sha256"
+        elif [ -f "$md5_file" ]; then
+            checksum_hash=$(awk '{print $1}' "$md5_file" 2>/dev/null || echo "unknown")
+            checksum_type="md5"
         fi
 
-        write_version_lock "$target_dir" "$sha256_hash"
-        ok "Version lock written with SHA256: $sha256_hash"
-        echo "SUCCESS: Installation verified and version lock written" >> "$BOOTSTRAP_LOG"
+        write_version_lock "$target_dir" "$checksum_hash"
+        ok "Version lock written ($checksum_type: $checksum_hash)"
+        echo "SUCCESS: Installation verified and version lock written ($checksum_type)" >> "$BOOTSTRAP_LOG"
 
         # Clean up backup only after successful verification
         if [ -d "$backup_dir" ]; then
@@ -620,8 +647,7 @@ bootstrap_cleanup() {
         # Clean up partial downloads from the actual state directory
         if [ -n "${STATE_DIR:-}" ] && [ -d "$STATE_DIR" ]; then
             find "$STATE_DIR" -name "ArchLinuxARM-*.tar.gz" -type f | while read -r tarfile; do
-                rm -f "$tarfile" 2>/dev/null || true
-                rm -f "${tarfile}.sha256" 2>/dev/null || true
+                rm -f "$tarfile" "${tarfile}.sha256" "${tarfile}.md5" 2>/dev/null || true
             done
         fi
 
