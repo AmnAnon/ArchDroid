@@ -2,7 +2,7 @@
 
 **Deterministic Arch Linux Runtime for Android (Root Required)**
 
-Run Arch Linux on Android with **predictable behavior, verified installs, and safe updates** — no broken chroot states, no silent failures, no manual debugging loops.
+Run Arch Linux on Android with **predictable behavior, verified installs, and safe updates** — eliminating broken chroot states and manual recovery.
 
 ---
 
@@ -39,6 +39,37 @@ su
 
 ---
 
+## ⚠️ Before You Start
+
+- Requires a **rooted Android device**
+- Modifies system mount behavior and runs as root
+- Designed for users comfortable with Linux environments
+
+If you're unsure, read the Security Model section first.
+
+---
+
+## ⚠️ Requirements
+
+### System Requirements
+- **Rooted Android**: KernelSU, Magisk, or equivalent root solution
+- **Architecture**: `aarch64` (ARMv8) - covers most modern Android devices
+- **Storage**: ~2GB available space for rootfs and operations
+- **Network**: HTTPS connectivity for secure downloads
+
+### Software Dependencies
+- **Shell Environment**: Termux, Android Terminal, or equivalent
+- **Core Utilities**: `curl`, `tar`, `sha256sum`, `jq`, standard POSIX tools
+- **Permissions**: Root access for mount operations and chroot execution
+
+### Verified Platforms
+| Device | Chipset | Android | Root Method | Status |
+|--------|---------|---------|-------------|--------|
+| Poco X3 Pro | Snapdragon 860 | 11+ | KernelSU | ✅ Verified |
+| *Add your device via PR* | | | | |
+
+---
+
 ## 🧠 How It Works (Simplified)
 
 ArchDroid operates in a strict loop:
@@ -49,6 +80,10 @@ ArchDroid operates in a strict loop:
 4. **Verify** — confirm system integrity  
 
 This ensures the system is never left in an unknown or partially broken state.
+
+```
+inspect → enforce → execute → verify → (repeat)
+```
 
 ---
 
@@ -135,17 +170,7 @@ ArchDroid is designed to protect against **runtime inconsistency and supply-chai
 
 ---
 
-## ⚡ Installation
-
-```bash
-# Clone repository
-git clone https://github.com/AmnAnon/archdroid.git
-cd archdroid
-
-# Initial system bootstrap (requires root)
-su
-./archdroid bootstrap
-```
+## 🔐 Manual Setup & Verification (Optional)
 
 **External Verification Setup** (Recommended for Production):
 ```bash
@@ -264,27 +289,6 @@ archdroid/
 ├── TRUST_MODEL.md                  # Security boundary documentation
 └── README.md                       # This documentation
 ```
-
----
-
-## ⚠️ Requirements
-
-### System Requirements
-- **Rooted Android**: KernelSU, Magisk, or equivalent root solution
-- **Architecture**: `aarch64` (ARMv8) - covers most modern Android devices
-- **Storage**: ~2GB available space for rootfs and operations
-- **Network**: HTTPS connectivity for secure downloads
-
-### Software Dependencies
-- **Shell Environment**: Termux, Android Terminal, or equivalent
-- **Core Utilities**: `curl`, `tar`, `sha256sum`, `jq`, standard POSIX tools
-- **Permissions**: Root access for mount operations and chroot execution
-
-### Verified Platforms
-| Device | Chipset | Android | Root Method | Status |
-|--------|---------|---------|-------------|--------|
-| Poco X3 Pro | Snapdragon 860 | 11+ | KernelSU | ✅ Verified |
-| *Add your device via PR* | | | | |
 
 ---
 
