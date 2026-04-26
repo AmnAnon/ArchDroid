@@ -219,6 +219,7 @@ autofix_dns() {
 
     autofix "Fixing DNS configuration..."
     local resolv_conf="$ARCH_PATH/etc/resolv.conf"
+    mkdir -p "$ARCH_PATH/etc"
 
     # Copy host DNS first
     if [ -f /etc/resolv.conf ]; then
@@ -290,10 +291,19 @@ validate_rootfs() {
     check_essential_file "usr/bin/pacman" "Pacman package manager" 1 || \
         warn "Pacman not found (not an Arch system?)"
 
-    # Chroot execution test — args must be passed as separate words, not a
-    # single quoted string, so each attempt is its own explicit call.
+    # Chroot execution test — mount essentials first so bash can actually run,
+    # then clean up regardless of outcome.
     info "Testing chroot execution..."
     local chroot_working=false
+
+    # Ensure required mount dirs exist
+    mkdir -p "$ARCH_PATH/proc" "$ARCH_PATH/sys" "$ARCH_PATH/dev"
+
+    # Mount — ignore failures (they may already be mounted)
+    mount -t proc  proc  "$ARCH_PATH/proc" 2>/dev/null || true
+    mount -t sysfs sysfs "$ARCH_PATH/sys"  2>/dev/null || true
+    mount --rbind  /dev  "$ARCH_PATH/dev"  2>/dev/null || true
+    mount --make-rslave  "$ARCH_PATH/dev"  2>/dev/null || true
 
     if chroot "$ARCH_PATH" /bin/bash -c 'echo ok' >/dev/null 2>&1; then
         chroot_working=true

@@ -468,6 +468,10 @@ atomic_install() {
 
         # Clean up backup only after successful verification
         if [ -d "$backup_dir" ]; then
+            # Unmount any bind mounts that may still be active inside backup
+            umount -lf "$backup_dir/dev" 2>/dev/null || true
+            umount -lf "$backup_dir/sys" 2>/dev/null || true
+            umount -lf "$backup_dir/proc" 2>/dev/null || true
             rm -rf "$backup_dir"
             ok "Old backup cleaned up"
             echo "SUCCESS: Backup cleaned up" >> "$BOOTSTRAP_LOG"
