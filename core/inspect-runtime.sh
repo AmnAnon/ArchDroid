@@ -78,8 +78,15 @@ diagnose_chroot_failure() {
             echo "  Setting it to Permissive is safe and temporary (resets on reboot)."
             echo ""
 
-            # Ask for approval before touching SELinux
-            if [ -t 0 ]; then
+            if [ "${ARCHDROID_AUTO_SELINUX:-0}" = "1" ]; then
+                # Non-interactive: auto-apply (user opted in via 'archdroid up' or env flag)
+                if setenforce 0 2>/dev/null; then
+                    ok "SELinux set to Permissive (auto)"
+                else
+                    warn "setenforce 0 failed — are you root?"
+                fi
+            elif [ -t 0 ]; then
+                # Interactive: ask for approval
                 printf "  Apply fix now? (setenforce 0) [y/N]: "
                 read -r selinux_answer </dev/tty
                 if [ "$selinux_answer" = "y" ] || [ "$selinux_answer" = "Y" ]; then
@@ -93,7 +100,7 @@ diagnose_chroot_failure() {
                     echo "     setenforce 0"
                 fi
             else
-                # Non-interactive (piped/scripted): just show the command
+                # Non-interactive, no flag: just print the fix
                 warn "Run manually to fix:"
                 echo "     setenforce 0"
             fi
@@ -156,7 +163,15 @@ autofix_selinux() {
     warn "SELinux is Enforcing — chroot operations may be blocked"
     echo ""
 
-    if [ -t 0 ]; then
+    if [ "${ARCHDROID_AUTO_SELINUX:-0}" = "1" ]; then
+        if setenforce 0 2>/dev/null; then
+            ok "SELinux set to Permissive (auto)"
+            return 0
+        else
+            warn "setenforce 0 failed (need root)"
+            return 1
+        fi
+    elif [ -t 0 ]; then
         printf "  Set SELinux to Permissive temporarily? (resets on reboot) [y/N]: "
         read -r answer </dev/tty
         if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then

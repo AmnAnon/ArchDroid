@@ -110,8 +110,20 @@ echo "  ║      ArchDroid installed successfully! 🎉        ║"
 echo "  ╚══════════════════════════════════════════════════╝"
 echo -e "${RESET}"
 echo ""
-info "Next steps:"
-echo "  1. Run: ${BOLD}archdroid bootstrap${RESET} (initial installation)"
-echo "  2. Run: ${BOLD}archdroid start${RESET} (enter chroot)"
-echo "  3. Run: ${BOLD}archdroid help${RESET} (see all commands)"
+
+if [ -t 0 ]; then
+    printf "  Run full setup now? (bootstrap + enter + pacman -Syu) [Y/n]: "
+    read -r run_now </dev/tty
+    if [ "${run_now:-Y}" != "n" ] && [ "${run_now:-Y}" != "N" ]; then
+        echo ""
+        exec "$BIN_PATH" up
+    fi
+fi
+
+info "To set up manually, run:"
+echo "  ${BOLD}archdroid up${RESET}      # Full setup in one command"
+echo ""
+echo "  Or step by step:"
+echo "  ${BOLD}archdroid bootstrap${RESET}   # Install Arch rootfs"
+echo "  ${BOLD}archdroid start${RESET}       # Enter chroot"
 echo ""

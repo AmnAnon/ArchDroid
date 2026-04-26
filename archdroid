@@ -74,7 +74,77 @@ cmd_version() {
     echo "  See TRUST_MODEL.md for security boundaries"
 }
 
-cmd_bootstrap() {
+cmd_up() {
+    banner "ArchDroid Full Setup + Update"
+
+    # ARCHDROID_AUTO_SELINUX=1 lets the whole flow run without interactive prompts
+    export ARCHDROID_AUTO_SELINUX="${ARCHDROID_AUTO_SELINUX:-1}"
+
+    # ── Step 1: Bootstrap if rootfs is missing ──────────────────────────────
+    if [ ! -f "$ARCH_PATH/bin/bash" ]; then
+        info "No rootfs found — running bootstrap first..."
+        echo ""
+        "${CORE_DIR}/bootstrap.sh" || {
+            fail "Bootstrap failed — run 'archdroid doctor' for details"
+            exit 1
+        }
+        echo ""
+    else
+        ok "Rootfs detected at $ARCH_PATH"
+    fi
+
+    # ── Step 2: SELinux — fix automatically (user opted in by running 'up') ─
+    if command -v getenforce >/dev/null 2>&1; then
+        local selinux_mode
+        selinux_mode=$(getenforce 2>/dev/null || echo "unknown")
+        if [ "$selinux_mode" = "Enforcing" ]; then
+            warn "SELinux is Enforcing — setting to Permissive (temporary, resets on reboot)"
+            if setenforce 0 2>/dev/null; then
+                ok "SELinux → Permissive"
+            else
+                fail "setenforce 0 failed — are you root?"
+                exit 1
+            fi
+        else
+            ok "SELinux: $selinux_mode"
+        fi
+    fi
+
+    # ── Step 3: Enforce mounts ───────────────────────────────────────────────
+    info "Setting up mount points..."
+    local mount_dirs=("proc" "sys" "dev" "dev/pts" "tmp")
+    for d in "${mount_dirs[@]}"; do mkdir -p "$ARCH_PATH/$d"; done
+
+    mountpoint -q "$ARCH_PATH/proc"    || mount -t proc  proc    "$ARCH_PATH/proc"    2>/dev/null && ok "proc"    || warn "proc mount failed"
+    mountpoint -q "$ARCH_PATH/sys"     || mount -t sysfs sysfs   "$ARCH_PATH/sys"     2>/dev/null && ok "sys"     || warn "sys mount failed"
+    mountpoint -q "$ARCH_PATH/dev"     || mount --rbind  /dev    "$ARCH_PATH/dev"     2>/dev/null && ok "dev"     || warn "dev mount failed"
+    mountpoint -q "$ARCH_PATH/dev/pts" || mount --rbind  /dev/pts "$ARCH_PATH/dev/pts" 2>/dev/null && ok "dev/pts" || warn "dev/pts mount failed"
+    mountpoint -q "$ARCH_PATH/tmp"     || mount -t tmpfs -o size=512m,mode=1777 tmpfs "$ARCH_PATH/tmp" 2>/dev/null && ok "tmp" || warn "tmp mount failed"
+
+    # ── Step 4: DNS ──────────────────────────────────────────────────────────
+    local resolv="$ARCH_PATH/etc/resolv.conf"
+    if [ ! -s "$resolv" ]; then
+        printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > "$resolv"
+        ok "DNS configured"
+    fi
+
+    # ── Step 5: Enter chroot and run pacman -Syu ─────────────────────────────
+    echo ""
+    info "Entering Arch Linux and updating system..."
+    echo ""
+
+    exec chroot "$ARCH_PATH" /usr/bin/env -i \
+        HOME="/root" \
+        PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+        TERM="${TERM:-xterm-256color}" \
+        LANG="C.UTF-8" \
+        LC_ALL="C.UTF-8" \
+        USER="root" \
+        SHELL="/bin/bash" \
+        /bin/bash -c "pacman-key --init 2>/dev/null; pacman-key --populate archlinuxarm 2>/dev/null; pacman -Syu --noconfirm"
+}
+
+
     banner "ArchDroid Bootstrap"
     info "Starting secure bootstrap process..."
     exec "${CORE_DIR}/bootstrap.sh" "$@"
@@ -158,6 +228,9 @@ cmd_status() {
 cmd_help() {
     banner "ArchDroid Commands"
     echo ""
+    echo "Quick Start:"
+    echo "  up            Bootstrap (if needed) + fix environment + enter + pacman -Syu"
+    echo ""
     echo "Setup Commands:"
     echo "  bootstrap     Install Arch Linux rootfs with security verification"
     echo "  update        Atomically update existing installation"
@@ -182,7 +255,8 @@ cmd_help() {
     echo "  - Requires root access for proper mount handling"
     echo ""
     echo "Examples:"
-    echo "  archdroid bootstrap    # Initial installation"
+    echo "  archdroid up           # Full first-time setup in one command"
+    echo "  archdroid bootstrap    # Initial installation only"
     echo "  archdroid start        # Enter chroot"
     echo "  archdroid doctor       # Diagnose issues"
     echo "  archdroid update       # Update to latest version"
@@ -201,6 +275,9 @@ main() {
     shift || true
 
     case "$command" in
+        "up")
+            cmd_up "$@"
+            ;;
         "bootstrap"|"install")
             cmd_bootstrap "$@"
             ;;
