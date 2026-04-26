@@ -1,0 +1,201 @@
+#!/bin/bash
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  ArchDroid CLI — cli/archdroid                                  ║
+# ║  Managed Arch Linux Runtime for Rooted Android                  ║
+# ║  github.com/AmnAnon/archdroid                                   ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+# Resolve script location regardless of symlink/working dir
+ARCHDROID_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+
+# Source core modules
+source "${ARCHDROID_DIR}/core/env.sh"
+source "${ARCHDROID_DIR}/core/mounts.sh"
+source "${ARCHDROID_DIR}/core/runtime.sh"
+source "${ARCHDROID_DIR}/core/bootstrap.sh"
+source "${ARCHDROID_DIR}/core/doctor.sh"
+
+# ─── COMMANDS ────────────────────────────────────────────────────────────────
+
+cmd_init() {
+  banner "ArchDroid Init v${ARCHDROID_VERSION}"
+  require_root "init"
+
+  # Path selection
+  local TERMUX_HOME="/data/data/com.termux/files/home/arch"
+  echo -e "  Where would you like to install Arch Linux?\n"
+  echo -e "  ${BOLD}1)${RESET} ${CYAN}/data/local/arch${RESET}  ${YELLOW}(Recommended)${RESET} — persistent across Termux reinstalls"
+  echo -e "  ${BOLD}2)${RESET} ${CYAN}${TERMUX_HOME}${RESET} — inside Termux home"
+  echo -e "  ${BOLD}3)${RESET} Custom path"
+  echo ""
+
+  while true; do
+    read -rp "  Choice [1/2/3] (default: 1): " CHOICE
+    CHOICE="${CHOICE:-1}"
+    case "$CHOICE" in
+      1) ARCH_PATH="/data/local/arch"; break ;;
+      2) ARCH_PATH="$TERMUX_HOME"; break ;;
+      3) read -rp "  Enter full path: " ARCH_PATH
+         [ -n "$ARCH_PATH" ] && break || warn "Path cannot be empty." ;;
+      *) warn "Enter 1, 2, or 3." ;;
+    esac
+  done
+
+  echo ""
+  warn "This will download ~930MB. Proceed? [y/N]"
+  read -rp "  " CONFIRM
+  [[ "$CONFIRM" =~ ^[Yy]$ ]] || { info "Aborted."; exit 0; }
+
+  # Save config
+  {
+    echo "# ArchDroid Configuration"
+    echo "ARCH_PATH=\"${ARCH_PATH}\""
+    echo "ARCHDROID_DIR=\"${ARCHDROID_DIR}\""
+  } > /data/local/archdroid.conf
+  ok "Config saved → /data/local/archdroid.conf"
+
+  run_bootstrap
+
+  echo ""
+  echo -e "${BOLD}${GREEN}"
+  echo "  ╔══════════════════════════════════════════════════╗"
+  echo "  ║           Installation Complete! 🎉              ║"
+  echo "  ╚══════════════════════════════════════════════════╝"
+  echo -e "${RESET}"
+  echo -e "  Run ${BOLD}archdroid start${RESET} to enter your chroot."
+  echo ""
+}
+
+cmd_start() {
+  banner "ArchDroid v${ARCHDROID_VERSION}"
+  require_root "start"
+  require_rootfs
+
+  set_selinux_permissive
+  detect_namespace
+  mount_all
+  sync_dns
+  handle_first_boot
+  enter_chroot
+}
+
+cmd_shell() {
+  # Enter chroot assuming mounts are already up
+  require_root "shell"
+  require_rootfs
+
+  if ! mountpoint -q "$ARCH_PATH/proc" 2>/dev/null; then
+    warn "Mounts not active — running full start instead"
+    cmd_start
+    return
+  fi
+
+  info "Entering existing chroot session..."
+  export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  local SHELL_BIN
+  SHELL_BIN=$(detect_shell)
+  exec chroot "$ARCH_PATH" "$SHELL_BIN" -l
+}
+
+cmd_stop() {
+  banner "ArchDroid Stop"
+  require_root "stop"
+  unmount_all
+}
+
+cmd_status() {
+  banner "ArchDroid Status"
+  require_root "status"
+
+  section "Mount Status"
+  mount_status
+
+  section "Chroot Info"
+  if [ -d "$ARCH_PATH/etc" ]; then
+    ok "Rootfs: $ARCH_PATH"
+    [ -f "$ARCH_PATH/etc/os-release" ] \
+      && grep PRETTY_NAME "$ARCH_PATH/etc/os-release" | sed 's/PRETTY_NAME=/  OS: /' \
+      || info "OS info not available"
+  else
+    fail "No rootfs found at $ARCH_PATH"
+  fi
+
+  section "Logs"
+  if [ -f "$LOG_FILE" ]; then
+    info "Today's log: $LOG_FILE"
+    tail -5 "$LOG_FILE" | sed 's/^/     /'
+  else
+    warn "No log for today"
+  fi
+}
+
+cmd_doctor() {
+  require_root "doctor"
+  run_doctor
+}
+
+cmd_reset() {
+  banner "ArchDroid Reset"
+  require_root "reset"
+
+  warn "This will unmount everything and DELETE the chroot at: $ARCH_PATH"
+  warn "This is irreversible. Type 'yes' to confirm:"
+  read -rp "  " CONFIRM
+  [ "$CONFIRM" = "yes" ] || { info "Aborted."; exit 0; }
+
+  unmount_all
+  rm -rf "$ARCH_PATH"
+  rm -f /data/local/archdroid.conf
+  ok "ArchDroid reset complete."
+  info "Run 'archdroid init' to start fresh."
+}
+
+cmd_logs() {
+  if [ -f "$LOG_FILE" ]; then
+    cat "$LOG_FILE"
+  else
+    info "No log file for today: $LOG_FILE"
+    info "All logs: ls ${LOG_DIR}/"
+  fi
+}
+
+cmd_help() {
+  echo ""
+  echo -e "${BOLD}${CYAN}  ArchDroid v${ARCHDROID_VERSION}${RESET} — Managed Arch Linux Runtime for Android"
+  echo -e "  ${CYAN}  github.com/AmnAnon/archdroid${RESET}"
+  echo ""
+  echo -e "  ${BOLD}Usage:${RESET} archdroid <command>"
+  echo ""
+  echo -e "  ${BOLD}Commands:${RESET}"
+  echo -e "    ${GREEN}init${RESET}      Download and install Arch Linux chroot"
+  echo -e "    ${GREEN}start${RESET}     Mount everything and enter chroot"
+  echo -e "    ${GREEN}shell${RESET}     Enter chroot (assumes mounts already active)"
+  echo -e "    ${GREEN}stop${RESET}      Safely unmount all chroot mounts"
+  echo -e "    ${GREEN}status${RESET}    Show mount status and chroot info"
+  echo -e "    ${GREEN}doctor${RESET}    Diagnose and auto-fix common issues"
+  echo -e "    ${GREEN}reset${RESET}     Unmount + delete chroot (destructive)"
+  echo -e "    ${GREEN}logs${RESET}      Show today's log"
+  echo -e "    ${GREEN}help${RESET}      Show this message"
+  echo ""
+  echo -e "  ${BOLD}Config:${RESET} /data/local/archdroid.conf"
+  echo -e "  ${BOLD}Logs:${RESET}   ${LOG_DIR}/"
+  echo ""
+}
+
+# ─── DISPATCH ────────────────────────────────────────────────────────────────
+case "${1:-help}" in
+  init)    cmd_init ;;
+  start)   cmd_start ;;
+  shell)   cmd_shell ;;
+  stop)    cmd_stop ;;
+  status)  cmd_status ;;
+  doctor)  cmd_doctor ;;
+  reset)   cmd_reset ;;
+  logs)    cmd_logs ;;
+  help|--help|-h) cmd_help ;;
+  *)
+    fail "Unknown command: $1"
+    cmd_help
+    exit 1
+    ;;
+esac

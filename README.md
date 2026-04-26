@@ -1,102 +1,128 @@
-# 🏛️ arch-android
+# ArchDroid
 
-**One-click Arch Linux aarch64 chroot for rooted Android devices.**  
-(https://github.com/AmnAnon) — run a real Linux environment on your Android device with full pacman, zsh, and storage access.
+**Managed Arch Linux aarch64 runtime for rooted Android devices.**  
+A proper CLI tool — not just scripts. Built and maintained by [AkN_Logic](https://x.com/AkN_Logic).
 
 ---
 
 ## Requirements
 
-- Rooted Android device (KernelSU or Magisk)
+- Rooted Android (KernelSU or Magisk)
 - [Termux](https://f-droid.org/packages/com.termux/) installed
-- `aarch64` device (Snapdragon, Dimensity, Exynos — most modern Android phones)
+- `aarch64` device (most modern Android phones)
 - ~2GB free storage
 
 ---
 
-## Quick Install
-
-Open Termux and run:
+## Install
 
 ```bash
 su
-curl -fsSL https://raw.githubusercontent.com/AmnAnon/arch-android/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AmnAnon/archdroid/main/install.sh | bash
 ```
-
-The installer will:
-1. Ask where to install (`/data/local/arch` or Termux home or custom path)
-2. Download the latest Arch Linux ARM rootfs (~930MB)
-3. Extract and configure everything
-4. Deploy `start-arch.sh` ready to use
 
 ---
 
-## Starting the Chroot
-
-Every time you want to enter Arch:
+## Usage
 
 ```bash
-su
-bash /data/local/start-arch.sh
+archdroid init      # Download + install Arch Linux (first time only)
+archdroid start     # Mount everything and enter chroot
+archdroid stop      # Safely unmount all mounts
+archdroid status    # Show mount status and chroot info
+archdroid doctor    # Diagnose and auto-fix common issues
+archdroid shell     # Re-enter chroot (if already mounted)
+archdroid logs      # Show today's log
+archdroid reset     # Wipe and start over
 ```
 
-On **first boot**, you'll see a success message and be asked if you want to run a full system upgrade. Recommended to say yes.
+---
+
+## First Boot Flow
+
+```
+archdroid init
+  → Choose install path (recommended: /data/local/arch)
+  → Downloads ~930MB Arch Linux ARM rootfs
+  → Patches pacman.conf for kernel 4.x compatibility
+  → Saves config to /data/local/archdroid.conf
+
+archdroid start
+  → Sets SELinux permissive
+  → Detects KernelSU / Magisk namespace
+  → Mounts dev, dev/pts, proc, sys, tmp (tmpfs), sdcard
+  → Syncs DNS automatically
+  → On first boot: asks if you want a full system upgrade
+  → Enters chroot
+```
 
 ---
 
-## What start-arch.sh Does
+## Architecture
 
-| Step | Action |
-|---|---|
-| SELinux | Sets to Permissive for the session |
-| Namespace | Detects KernelSU vs Magisk, handles mount visibility |
-| Mounts | dev, dev/pts, proc, sys, sdcard |
-| DNS | Syncs from host, falls back to 8.8.8.8 / 1.1.1.1 |
-| Shell | Auto-detects zsh → bash → sh |
-| First boot | Shows success banner, prompts for system upgrade |
+```
+archdroid/
+├── core/
+│   ├── env.sh          # Shared config, colors, logging
+│   ├── mounts.sh       # All bind mount / unmount logic
+│   ├── runtime.sh      # Chroot entry, namespace, shell detection
+│   ├── bootstrap.sh    # Download, extract, pacman patch
+│   └── doctor.sh       # Diagnose and self-heal
+│
+├── cli/
+│   └── archdroid       # Main CLI dispatcher
+│
+├── state/
+│   ├── sessions/       # Session tracking
+│   └── logs/           # Daily logs at /data/local/archdroid-state/logs/
+│
+└── install.sh          # One-liner installer
+```
 
 ---
 
-## Install Path Options
+## What Makes This Different
 
-| Option | Path | Notes |
+| Feature | Most repos | ArchDroid |
 |---|---|---|
-| Recommended | `/data/local/arch` | Survives Termux reinstalls |
-| Termux home | `~/arch` | Easier permissions |
-| Custom | Your choice | Full control |
-
----
-
-## After First Boot
-
-Install your essentials:
-```bash
-pacman -S zsh git vim python base-devel
-```
-
----
-
-## Tested On
-
-| Device | Chipset | Root | Status |
-|---|---|---|---|
-| Poco X3 Pro | Snapdragon 860 | KernelSU-Next | ✅ Working |
-
-> Got it working on your device? Open a PR to add it to the table.
+| Single-command entry | ❌ | ✅ `archdroid start` |
+| DNS auto-sync with fallback | ❌ | ✅ 3-strategy fallback |
+| KernelSU + Magisk support | Partial | ✅ Auto-detected |
+| RAM-backed `/tmp` | ❌ | ✅ 512MB tmpfs |
+| Clean PATH (no Android leak) | ❌ | ✅ |
+| Self-healing | ❌ | ✅ `archdroid doctor` |
+| Logging | ❌ | ✅ Daily logs |
+| kernel 4.x pacman fix | ❌ | ✅ Auto-patched |
+| Safe unmount | ❌ | ✅ `archdroid stop` |
 
 ---
 
 ## Troubleshooting
 
-**pacman can't reach mirrors**  
-→ Check DNS: `cat /etc/resolv.conf` — should show `8.8.8.8`  
-→ Check connectivity: `ping -c 2 8.8.8.8`
+Run `archdroid doctor` first — it checks and auto-fixes most common issues.
 
-**Landlock sandbox error**  
-→ Add `DisableSandbox` under `[options]` in `/etc/pacman.conf`
+**pacman fails with Landlock error:**
+```bash
+archdroid doctor  # auto-fixes DisableSandbox
+```
 
-**SSL errors downloading tarball**  
-→ The installer uses Termux's curl which has proper certs. Make sure you're running from Termux, not Android shell.
+**DNS not working inside chroot:**
+```bash
+archdroid stop && archdroid start  # re-syncs DNS on mount
+```
+
+**Mounts missing after reboot:**  
+Mounts don't survive Android reboots — always run `archdroid start` after booting.
+
+---
+
+## Tested On
+
+| Device | Chipset | Kernel | Root | Status |
+|---|---|---|---|---|
+| Poco X3 Pro | Snapdragon 860 | 4.14 | KernelSU-Next | ✅ Working |
+
+> Got it working on your device? Open a PR to add it to the table.
 
 ---
 
@@ -106,4 +132,4 @@ MIT — use freely, credit appreciated.
 
 ---
 
-*by AkN*
+*by [AkN_Logic](https://x.com/AkN_Logic) — The Modern Alchemist in the Shell*
