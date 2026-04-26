@@ -8,7 +8,9 @@
 set -euo pipefail
 
 # ─── CONFIGURATION ───────────────────────────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve actual script location even when symlinked
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 CORE_DIR="$SCRIPT_DIR/core"
 
 # Default paths
