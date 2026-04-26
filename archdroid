@@ -108,6 +108,22 @@ cmd_up() {
             echo "       ARCHDROID_FORCE=1 archdroid up"
             echo ""
             exit 1
+        elif [ "$current_version" = "none" ] && [ "${ARCHDROID_FORCE:-0}" = "1" ]; then
+            echo ""
+            warn "ARCHDROID_FORCE=1 set — preparing to overwrite existing unmanaged rootfs"
+            warn "Path: $ARCH_PATH"
+            echo ""
+            if [ -t 0 ]; then
+                printf "  ⚠  This will overwrite the existing system at $ARCH_PATH. Continue? [y/N]: "
+                read -r confirm </dev/tty
+                if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+                    info "Aborted."
+                    exit 1
+                fi
+            else
+                fail "ARCHDROID_FORCE=1 requires interactive confirmation — cannot proceed non-interactively"
+                exit 1
+            fi
         fi
         ok "Rootfs detected at $ARCH_PATH (version: $current_version)"
     fi

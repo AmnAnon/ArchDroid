@@ -110,9 +110,22 @@ check_existing_installation() {
             exit 1
         fi
 
-        warn "ARCHDROID_FORCE=1 set — overwriting existing unmanaged rootfs"
+        warn "ARCHDROID_FORCE=1 set — preparing to overwrite existing unmanaged rootfs"
         warn "Path: $ARCH_PATH"
-        echo "WARN: Forced overwrite of unmanaged rootfs" >> "$BOOTSTRAP_LOG"
+        echo ""
+        if [ -t 0 ]; then
+            printf "  ⚠  This will overwrite the existing system at $ARCH_PATH. Continue? [y/N]: "
+            read -r confirm </dev/tty
+            if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+                info "Aborted."
+                exit 1
+            fi
+        else
+            fail "ARCHDROID_FORCE=1 requires interactive confirmation — cannot proceed non-interactively"
+            fail "Run the command in a terminal, not piped."
+            exit 1
+        fi
+        echo "WARN: Forced overwrite of unmanaged rootfs — user confirmed" >> "$BOOTSTRAP_LOG"
     fi
 
     info "No existing installation found — proceeding with bootstrap"
