@@ -261,9 +261,9 @@ ArchDroid has been **tested under failure conditions** including process interru
 - **Concurrent Access**: Multiple process scenarios and locking validation
 
 ### Validation Results
-- **9/9 Fuzz Tests Passed**: All failure injection scenarios handled correctly  
-- **5/5 Recovery Tests Passed**: Complete state recovery validation
-- **Zero Data Loss**: No partial artifacts or corrupted states in any failure mode
+- **9/9 Fuzz Tests Pass**: All failure injection scenarios handled correctly (run `./test/fuzz-framework.sh suite`)
+- **5/5 Recovery Tests Pass**: Complete state recovery validation (run `./test/recovery-validation.sh`)  
+- **Zero Data Loss**: No partial artifacts or corrupted states in any tested failure mode
 
 ---
 
