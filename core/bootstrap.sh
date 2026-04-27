@@ -705,6 +705,8 @@ check_system_requirements() {
     info "Next steps:"
     echo "  1. Run 'archdroid start' to enter your chroot"
     echo "  2. Run 'archdroid doctor' if you encounter issues"
+
+    exit 0
 }
 
 # ─── MAIN EXECUTION ──────────────────────────────────────────────────────────
@@ -713,7 +715,8 @@ check_system_requirements() {
 bootstrap_cleanup() {
     local exit_code=$?
 
-    if [ $exit_code -ne 0 ]; then
+    # Trap fires on ANY exit (0 or non-zero). Only act on actual failures.
+    if [ $exit_code -ne 0 ] 2>/dev/null || [ "${exit_code:-0}" != "0" ]; then
         # Bootstrap failed - clean up partial artifacts
         warn "Bootstrap failed - cleaning up partial artifacts..."
 
