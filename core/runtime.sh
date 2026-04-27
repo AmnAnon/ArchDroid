@@ -232,9 +232,15 @@ adaptive_gate_startup() {
     local inspection_exit_code=0
     "${SCRIPT_DIR}/inspect-runtime.sh" || inspection_exit_code=$?
 
-    # Get overall status after auto-fixes
+    # Get overall status after auto-fixes.
+    # When jq is not available, fall back to inspect-runtime.sh's exit code.
     local status
-    status=$(safe_json_int "$RUNTIME_JSON" ".overall_status" "2")
+    if command -v jq >/dev/null 2>&1; then
+        status=$(safe_json_int "$RUNTIME_JSON" ".overall_status" "2")
+    else
+        # inspect-runtime.sh exits with its computed overall_status
+        status="$inspection_exit_code"
+    fi
 
     case "$status" in
         0)
@@ -255,10 +261,19 @@ adaptive_gate_startup() {
         2)
             # Critical failures - check what failed and try to continue gracefully
             local fs_status network_status env_status sec_status
-            fs_status=$(safe_json_int "$RUNTIME_JSON" ".components.filesystem" "2")
-            network_status=$(safe_json_int "$RUNTIME_JSON" ".components.network" "2")
-            env_status=$(safe_json_int "$RUNTIME_JSON" ".components.environment" "2")
-            sec_status=$(safe_json_int "$RUNTIME_JSON" ".components.security" "2")
+            if command -v jq >/dev/null 2>&1; then
+                fs_status=$(safe_json_int "$RUNTIME_JSON" ".components.filesystem" "2")
+                network_status=$(safe_json_int "$RUNTIME_JSON" ".components.network" "2")
+                env_status=$(safe_json_int "$RUNTIME_JSON" ".components.environment" "2")
+                sec_status=$(safe_json_int "$RUNTIME_JSON" ".components.security" "2")
+            else
+                # Fall back to inspection exit code — compute status from overall
+                local _iesit="$inspection_exit_code"
+                fs_status="$_iesit"
+                network_status="$_iesit"
+                env_status="$_iesit"
+                sec_status="$_iesit"
+            fi
 
             # Filesystem is critical — can't proceed without it
             if [ "$fs_status" -gt 1 ]; then

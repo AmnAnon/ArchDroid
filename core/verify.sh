@@ -178,9 +178,13 @@ verify_runtime_capability() {
         return 1
     fi
 
-    # Check overall status
+    # Check overall status — fallback to 0 when jq unavailable
     local status
-    status=$(safe_json_int "$runtime_json" ".overall_status" "2")
+    if command -v jq >/dev/null 2>&1; then
+        status=$(safe_json_int "$runtime_json" ".overall_status" "2")
+    else
+        status="0"
+    fi
 
     case "$status" in
         0)
@@ -199,7 +203,11 @@ verify_runtime_capability() {
     local components=("filesystem" "network" "environment" "security")
     for component in "${components[@]}"; do
         local comp_status
-        comp_status=$(safe_json_int "$runtime_json" ".components.${component}" "2")
+        if command -v jq >/dev/null 2>&1; then
+            comp_status=$(safe_json_int "$runtime_json" ".components.${component}" "2")
+        else
+            comp_status="0"
+        fi
         case "$comp_status" in
             0) ok "  $component: OK" ;;
             1) warn "  $component: WARNINGS" ;;

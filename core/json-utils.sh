@@ -11,7 +11,8 @@ set -euo pipefail
 # Note: We allow graceful degradation when jq is not available
 # but functions should handle this explicitly
 check_jq_available() {
-    command -v jq >/dev/null 2>&1
+    command -v jq >/dev/null 2>&1 || return 1
+    return 0
 }
 
 # ─── COLORS ──────────────────────────────────────────────────────────────────
@@ -49,13 +50,10 @@ safe_json_get() {
     local path="$2"
     local default="${3:-null}"
 
-    if ! validate_json "$json_file"; then
-        echo "$default"
-        return 1
-    fi
-
-    if ! check_jq_available; then
-        warn "jq not available - returning default value"
+    # Inline checks — avoid calling check_jq_available inside $() subshell
+    # because set -e makes a returned non-zero exit from a function body
+    # kill the subshell (and then echo never runs).
+    if [ ! -f "$json_file" ] || ! command -v jq >/dev/null 2>&1; then
         echo "$default"
         return 1
     fi
@@ -69,8 +67,11 @@ safe_json_bool() {
     local path="$2"
     local default="${3:-false}"
 
-    local result
-    result=$(safe_json_get "$json_file" "$path" "$default")
+    # Avoid $() subshells with set -e — inline
+    local result="$default"
+    if [ -f "$json_file" ] && command -v jq >/dev/null 2>&1; then
+        result=$(jq -r "$path // \"$default\"" "$json_file" 2>/dev/null || echo "$default")
+    fi
 
     case "$result" in
         true|false) echo "$result" ;;
@@ -84,8 +85,12 @@ safe_json_int() {
     local path="$2"
     local default="${3:-0}"
 
-    local result
-    result=$(safe_json_get "$json_file" "$path" "$default")
+    # Avoid $() subshells with set -e — inline the JSON read
+    # so we don't get killed when jq is missing
+    local result="$default"
+    if [ -f "$json_file" ] && command -v jq >/dev/null 2>&1; then
+        result=$(jq -r "$path // \"$default\"" "$json_file" 2>/dev/null || echo "$default")
+    fi
 
     # Validate it's an integer
     if [[ "$result" =~ ^[0-9]+$ ]]; then
