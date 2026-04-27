@@ -640,18 +640,18 @@ check_system_requirements() {
     # Use the SAME canonical test everywhere: chroot "$ROOTFS" /bin/bash -c 'exit 0'
     # Layer A is the only fatal layer — if chroot doesn't work at the final
     # location, we stop with a rename (not delete) so the user can debug.
+    # Final-location execution test — chroot in a subshell, result via exit code
+    # The subshell isolates side effects; the exit code tells us if chroot works.
     local final_exec_ok=false
-    (
-        # Minimal prerequisites for chroot at final location
+    if (
         mount -o remount,exec /data 2>/dev/null || true
         mkdir -p "$ARCH_PATH/proc" "$ARCH_PATH/sys" "$ARCH_PATH/dev" "$ARCH_PATH/etc"
         [ -L "$ARCH_PATH/lib" ] && [ ! -e "$ARCH_PATH/lib" ] && ln -sf usr/lib "$ARCH_PATH/lib" 2>/dev/null || true
 
-        if chroot "$ARCH_PATH" /bin/bash -c 'exit 0' >/dev/null 2>&1; then
-            final_exec_ok=true
-        fi
-        [ "$final_exec_ok" = true ] && exit 0 || exit 1
-    ) 2>/dev/null || true
+        chroot "$ARCH_PATH" /bin/bash -c 'exit 0' >/dev/null 2>&1
+    ) 2>/dev/null; then
+        final_exec_ok=true
+    fi
 
     if [ "$final_exec_ok" = true ]; then
         ok "Final-location chroot: PASSED"
