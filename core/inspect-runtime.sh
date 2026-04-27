@@ -229,6 +229,12 @@ autofix_dns() {
     # Fix 3: Ensure /etc exists before anything tries to write resolv.conf
     mkdir -p "$ARCH_PATH/etc" 2>/dev/null || true
 
+    # Remove broken symlink first (resolv.conf in Arch rootfs points to
+    # /run/systemd/resolve/resolv.conf which doesn't exist in Android context)
+    if [ -L "$resolv_conf" ] && [ ! -e "$resolv_conf" ]; then
+        rm -f "$resolv_conf" 2>/dev/null || true
+    fi
+
     # Copy host DNS first
     if [ -f /etc/resolv.conf ]; then
         cp /etc/resolv.conf "$resolv_conf" 2>/dev/null || true
