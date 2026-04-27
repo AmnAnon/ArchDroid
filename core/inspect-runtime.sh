@@ -304,12 +304,54 @@ validate_rootfs() {
     info "Testing chroot execution..."
     local chroot_working=false
 
-    # Android mounts /data noexec — remount exec so ELF binaries can run
+    # Fix 4: F2FS Remount Propagation — remount exec BEFORE any bind-mounts.
+    # On F2FS, if bind-mounts are set up first and /data is still noexec,
+    # the noexec flag propagates into the bind-mount namespace and a later
+    # remount won't fix it.
     local data_mount
     data_mount=$(mount 2>/dev/null | awk '$3 == "/data" {print}' | head -1)
     if echo "$data_mount" | grep -q "noexec"; then
         mount -o remount,exec /data 2>/dev/null || true
     fi
+
+    # Fix 1: Symlink convergence — ensure /lib and /bin point to /usr counterparts
+    # Android tar extractions often break these relative links into dangling paths.
+    for _link in lib lib64 bin sbin; do
+        local _target="usr/$_link"
+        local _lpath="$ARCH_PATH/$_link"
+        if [ -d "$ARCH_PATH/$_target" ]; then
+            if [ -L "$_lpath" ]; then
+                local _current
+                _current=$(readlink "$_lpath")
+                if [ "$_current" != "$_target" ] && [ "$_current" != "/usr/$_link" ]; then
+                    ln -sf "$_target" "$_lpath" 2>/dev/null || true
+                    autofix "Relinked $_link → $_target"
+                fi
+            elif [ ! -e "$_lpath" ]; then
+                ln -sf "$_target" "$_lpath" 2>/dev/null || true
+                autofix "Created symlink $_link → $_target"
+            fi
+        fi
+    done
+
+    # Fix 2: ELF interpreter validation — fail early with a clear message
+    # instead of a cryptic "No such file or directory" from chroot.
+    local _bash_bin="$ARCH_PATH/bin/bash"
+    if [ -f "$_bash_bin" ]; then
+        local _interp
+        _interp=$(readelf -l "$_bash_bin" 2>/dev/null \
+            | awk '/interpreter/ {gsub(/[\[\]]/,""); print $NF}')
+        if [ -n "$_interp" ] && [ ! -f "$ARCH_PATH$_interp" ]; then
+            fail "ELF interpreter not found inside rootfs: $_interp"
+            fail "This is why chroot says 'No such file or directory'"
+            fail "Re-run: archdroid bootstrap"
+            update_component_status "filesystem" $STATUS_FAIL
+            return 1
+        fi
+    fi
+
+    # Fix 3: Ensure /etc exists before anything tries to write resolv.conf
+    mkdir -p "$ARCH_PATH/etc"
 
     # Ensure required mount dirs exist
     mkdir -p "$ARCH_PATH/proc" "$ARCH_PATH/sys" "$ARCH_PATH/dev"

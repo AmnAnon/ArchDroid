@@ -41,7 +41,53 @@ fi
 
 info "Chroot path: ${ARCH_PATH}"
 
-# ─── 1. SELINUX → PERMISSIVE ────────────────────────────────────────────────
+# ─── 1. EXEC ENVIRONMENT + SELINUX ──────────────────────────────────────────
+# Fix 4: Remount /data exec BEFORE any bind-mounts.
+# On F2FS/Android, if mounts are set up while /data is noexec, the noexec
+# flag propagates into the bind-mount namespace and a later remount won't
+# propagate the fix.
+DATA_MOUNT=$(mount 2>/dev/null | awk '$3 == "/data" {print}' | head -1)
+if echo "$DATA_MOUNT" | grep -q "noexec"; then
+  mount -o remount,exec /data 2>/dev/null \
+    && ok "/data → exec" \
+    || warn "Failed to remount /data exec — chroot may fail"
+fi
+
+# Fix 1: Symlink convergence — Arch Linux ARM uses merged /usr.
+# Many Android tar extractions break relative symlinks into dangling paths.
+for _lnk in lib lib64 bin sbin; do
+  _tgt="usr/$_lnk"
+  _lpth="$ARCH_PATH/$_lnk"
+  if [ -d "$ARCH_PATH/$_tgt" ]; then
+    if [ -L "$_lpth" ]; then
+      _cur=$(readlink "$_lpth")
+      if [ "$_cur" != "$_tgt" ] && [ "$_cur" != "/usr/$_lnk" ]; then
+        ln -sf "$_tgt" "$_lpth" 2>/dev/null || true
+        ok "Relinked $_lnk → $_tgt"
+      fi
+    elif [ ! -e "$_lpth" ]; then
+      ln -sf "$_tgt" "$_lpth" 2>/dev/null || true
+      ok "Created symlink $_lnk → $_tgt"
+    fi
+  fi
+done
+
+# Fix 2: ELF interpreter validation — catch the "No such file or directory"
+# error before chroot even tries, and tell the user exactly what's missing.
+if [ -f "$ARCH_PATH/bin/bash" ]; then
+  _INTERP=$(readelf -l "$ARCH_PATH/bin/bash" 2>/dev/null \
+    | awk '/interpreter/ {gsub(/[\[\]]/,""); print $NF}')
+  if [ -n "$_INTERP" ] && [ ! -f "$ARCH_PATH$_INTERP" ]; then
+    echo -e "${RED}  ✘  ELF interpreter missing inside rootfs: $_INTERP${RESET}"
+    echo -e "${RED}  ✘  This is why chroot says 'No such file or directory'${RESET}"
+    echo -e "${YELLOW}  ▶  Re-run: archdroid bootstrap${RESET}"
+    exit 1
+  fi
+fi
+
+# Fix 3: Ensure /etc exists before DNS write
+mkdir -p "$ARCH_PATH/etc"
+
 setenforce 0 2>/dev/null \
   && ok "SELinux → Permissive" \
   || warn "SELinux: already permissive or not applicable"

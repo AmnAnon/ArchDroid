@@ -483,15 +483,17 @@ smart_enforce_dns() {
             host_dns_applied=true
             echo "Applied host DNS config" >> "$LOG_FILE"
 
-            # Test if host DNS works
-            sleep 1
-            for test_host in "google.com" "1.1.1.1"; do
-                if timeout 3 getent hosts "$test_host" >/dev/null 2>&1; then
-                    ok "Host DNS configuration works - using it"
-                    echo "SUCCESS: Host DNS working" >> "$LOG_FILE"
-                    return 0
-                fi
-            done
+            # Test if host DNS works — avoid if no getent inside the shell
+            if command -v getent >/dev/null 2>&1; then
+                sleep 1
+                for test_host in "google.com" "1.1.1.1"; do
+                    if timeout 3 getent hosts "$test_host" >/dev/null 2>&1; then
+                        ok "Host DNS configuration works - using it"
+                        echo "SUCCESS: Host DNS working" >> "$LOG_FILE"
+                        return 0
+                    fi
+                done
+            fi
             warn "Host DNS config copied but still not working"
         fi
     fi
