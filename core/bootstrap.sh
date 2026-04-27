@@ -370,10 +370,12 @@ validate_staging_rootfs() {
         return 0
     fi
 
-    # Chroot exec failed — diagnose and warn, but don't block installation.
-    # File presence already confirmed the rootfs is valid; exec failures are
-    # almost always SELinux (fixed by setenforce 0 in cmd_up) or missing mounts.
-    warn "Staged rootfs: chroot execution test failed (non-fatal)"
+    # Chroot exec failed — this is HARD FAIL for deterministic systems.
+    # If chroot can't execute in staging, it won't execute after install.
+    # The only acceptable reason is SELinux, which cmd_up handles before
+    # calling bootstrap. If we got here with SELinux=Permissive, something
+    # deeper is wrong.
+    fail "Staged rootfs: chroot execution FAILED — aborting install"
 
     # Check ELF interpreter is present
     local interp
@@ -386,17 +388,30 @@ validate_staging_rootfs() {
         return 1
     fi
 
-    # Check SELinux — most common cause on Android
+    # Check SELinux
     local selinux_mode
     selinux_mode=$(getenforce 2>/dev/null || echo "unknown")
     if [ "$selinux_mode" = "Enforcing" ]; then
-        warn "SELinux is Enforcing — chroot exec is blocked"
-        warn "archdroid up sets Permissive automatically before entering"
+        fail "SELinux is Enforcing — chroot exec is blocked"
+        fail "Run: setenforce 0 && archdroid bootstrap"
+        echo "FATAL: SELinux Enforcing blocked chroot" >> "$BOOTSTRAP_LOG"
     fi
 
-    warn "Continuing installation — rootfs files are intact"
-    echo "WARN: Staging chroot test failed (SELinux: $selinux_mode) — continuing" >> "$BOOTSTRAP_LOG"
-    return 0
+    # Run ldd inside chroot to check library resolution
+    echo ""
+    info "Diagnostic: library resolution from inside chroot:"
+    if timeout 5 chroot "$staging_dir" /usr/lib/ld-linux-aarch64.so.1 --list /bin/bash 2>/dev/null; then
+        :  # success >/dev/null
+    else
+        timeout 5 chroot "$staging_dir" /lib/ld-linux-aarch64.so.1 --list /bin/bash 2>&1 || true
+    fi
+
+    echo ""
+    fail "Cannot continue — rootfs execution is broken"
+    fail "This is NOT an SELinux issue (already Permissive)"
+    fail "Check the diagnostic output above for library resolution errors"
+    echo "FATAL: Staging chroot test failed — aborting" >> "$BOOTSTRAP_LOG"
+    return 1
 }
 
 # ─── ATOMIC INSTALLATION ─────────────────────────────────────────────────────
