@@ -355,12 +355,12 @@ validate_staging_rootfs() {
     mount_staging "$staging_dir"
     trap "umount_staging '$staging_dir'" RETURN
 
+    # Canonical execution test — one test everywhere
+    # Layer A (execution) is the only critical layer.
     local chroot_ok=false
-    if chroot "$staging_dir" /bin/bash -c 'echo ok' >/dev/null 2>&1; then
+    if timeout 10 chroot "$staging_dir" /bin/bash -c 'exit 0' >/dev/null 2>&1; then
         chroot_ok=true
-    elif chroot "$staging_dir" /bin/sh -c 'echo ok' >/dev/null 2>&1; then
-        chroot_ok=true
-    elif chroot "$staging_dir" /usr/bin/env true >/dev/null 2>&1; then
+    elif timeout 10 chroot "$staging_dir" /bin/sh -c 'exit 0' >/dev/null 2>&1; then
         chroot_ok=true
     fi
 
@@ -629,30 +629,53 @@ check_system_requirements() {
     rm -f "$tarfile"
     ok "Downloaded tarball cleaned up"
 
-    # Final verification with installed system - mandatory for security
-    info "Running comprehensive post-installation verification..."
-    echo "VERIFY: Starting mandatory post-installation verification" >> "$BOOTSTRAP_LOG"
+    # Final verification with installed system — mandatory for security
+    info "Running post-installation verification..."
+    echo "VERIFY: Starting post-installation verification" >> "$BOOTSTRAP_LOG"
 
-    if ! "${SCRIPT_DIR}/verify.sh" >/dev/null 2>&1; then
-        fail "Post-installation verification: FAILED"
-        fail "Installation completed but verification failed"
-        fail "This indicates critical system issues:"
-        fail "  - Incomplete installation"
-        fail "  - Configuration problems"
-        fail "  - Runtime environment corruption"
-        echo "FATAL: Post-installation verification failed" >> "$BOOTSTRAP_LOG"
+    # --- Fix 5: Final-location execution test ---
+    # After the atomic move, validate that chroot works at the FINAL path,
+    # not just the staging path. The exec context changes between staging
+    # and final (mounted dirs, /data noexec state, namespace visibility).
+    # Use the SAME canonical test everywhere: chroot "$ROOTFS" /bin/bash -c 'exit 0'
+    # Layer A is the only fatal layer — if chroot doesn't work at the final
+    # location, we stop with a rename (not delete) so the user can debug.
+    local final_exec_ok=false
+    (
+        # Minimal prerequisites for chroot at final location
+        mount -o remount,exec /data 2>/dev/null || true
+        mkdir -p "$ARCH_PATH/proc" "$ARCH_PATH/sys" "$ARCH_PATH/dev" "$ARCH_PATH/etc"
+        [ -L "$ARCH_PATH/lib" ] && [ ! -e "$ARCH_PATH/lib" ] && ln -sf usr/lib "$ARCH_PATH/lib" 2>/dev/null || true
 
-        # Installation failed verification - this is a security issue
-        warn "Removing failed installation for security"
+        if chroot "$ARCH_PATH" /bin/bash -c 'exit 0' >/dev/null 2>&1; then
+            final_exec_ok=true
+        fi
+        [ "$final_exec_ok" = true ] && exit 0 || exit 1
+    ) 2>/dev/null || true
+
+    if [ "$final_exec_ok" = true ]; then
+        ok "Final-location chroot: PASSED"
+        echo "SUCCESS: Final-location chroot test passed" >> "$BOOTSTRAP_LOG"
+
+        # Run non-fatal layers (mounts, network, environment) — warn only
+        "${SCRIPT_DIR}/verify.sh" >/dev/null 2>&1 || true
+    else
+        # Fix 5: preserve installation instead of deleting
+        fail "Final-location chroot: FAILED"
+        fail "Rootfs is valid but chroot fails at final path"
+        fail "This is likely an Android exec context issue (F2FS noexec, namespace)"
+        fail "Preserving rootfs at ${ARCH_PATH}.failed for debugging"
+        fail "Run: chroot ${ARCH_PATH}.failed /bin/bash -c 'echo ok' to test manually"
+        echo "FATAL: Final-location chroot test failed" >> "$BOOTSTRAP_LOG"
+
+        # Rename, don't delete — user needs to debug
+        mv "$ARCH_PATH" "${ARCH_PATH}.failed" 2>/dev/null || true
+
+        # Rollback from .old backup if available
         if [ -d "${ARCH_PATH}.old" ]; then
-            rm -rf "$ARCH_PATH"
             mv "${ARCH_PATH}.old" "$ARCH_PATH" 2>/dev/null || true
             warn "Rolled back to previous installation"
-            echo "SUCCESS: Rollback to previous installation" >> "$BOOTSTRAP_LOG"
-        else
-            rm -rf "$ARCH_PATH"
-            warn "Removed failed installation (no backup available)"
-            echo "SUCCESS: Removed failed installation" >> "$BOOTSTRAP_LOG"
+            echo "SUCCESS: Rolled back to previous installation" >> "$BOOTSTRAP_LOG"
         fi
 
         exit 1

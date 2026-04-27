@@ -362,13 +362,10 @@ validate_rootfs() {
     mount --rbind  /dev  "$ARCH_PATH/dev"  2>/dev/null || true
     mount --make-rslave  "$ARCH_PATH/dev"  2>/dev/null || true
 
-    if chroot "$ARCH_PATH" /bin/bash -c 'echo ok' >/dev/null 2>&1; then
+    # Canonical execution test — same across staging, final, and runtime
+    if timeout 10 chroot "$ARCH_PATH" /bin/bash -c 'exit 0' >/dev/null 2>&1; then
         chroot_working=true
-    elif chroot "$ARCH_PATH" /bin/sh -c 'echo ok' >/dev/null 2>&1; then
-        chroot_working=true
-    elif chroot "$ARCH_PATH" /usr/bin/env true >/dev/null 2>&1; then
-        chroot_working=true
-    elif chroot "$ARCH_PATH" /bin/bash --version >/dev/null 2>&1; then
+    elif timeout 10 chroot "$ARCH_PATH" /bin/sh -c 'exit 0' >/dev/null 2>&1; then
         chroot_working=true
     fi
 
