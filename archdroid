@@ -69,9 +69,32 @@ cmd_up() {
 
     export ARCHDROID_AUTO_SELINUX="${ARCHDROID_AUTO_SELINUX:-1}"
 
-    # ── Step 1: Bootstrap if rootfs is missing ──────────────────────────────
+    # ── Step 1a: SELinux fix BEFORE bootstrap ────────────────────────────────
+    # SELinux blocks chroot execution entirely. Must be fixed before bootstrap
+    # runs its final-location chroot test, or the install fails on Enforcing.
+    if command -v getenforce >/dev/null 2>&1; then
+        local selinux_mode
+        selinux_mode=$(getenforce 2>/dev/null || echo "unknown")
+        if [ "$selinux_mode" = "Enforcing" ]; then
+            if setenforce 0 2>/dev/null; then
+                :  # silently fixed
+            else
+                fail "setenforce 0 failed — are you root?"
+                exit 1
+            fi
+        fi
+    fi
+
+    # ── Step 1b: noexec on /data ─────────────────────────────────────────────
+    local data_mount
+    data_mount=$(mount 2>/dev/null | awk '$3 == "/data" {print}' | head -1)
+    if echo "$data_mount" | grep -q "noexec"; then
+        mount -o remount,exec /data 2>/dev/null || true
+    fi
+
+    # ── Step 2: Bootstrap if rootfs is missing ──────────────────────────────
     if [ ! -f "$ARCH_PATH/bin/bash" ]; then
-        info "No rootfs found — running bootstrap first..."
+        info "No rootfs found — running bootstrap..."
         echo ""
         ARCHDROID_BOOTSTRAP_ALLOWED=1 ARCHDROID_INTERNAL_CALL=1 "${CORE_DIR}/bootstrap.sh" || {
             fail "Bootstrap failed — run 'archdroid doctor' for details"
@@ -114,25 +137,6 @@ cmd_up() {
         fi
         ok "Rootfs: $ARCH_PATH (version: $current_version)"
     fi
-
-    # ── Step 2: SELinux ──────────────────────────────────────────────────────
-    if command -v getenforce >/dev/null 2>&1; then
-        local selinux_mode
-        selinux_mode=$(getenforce 2>/dev/null || echo "unknown")
-        if [ "$selinux_mode" = "Enforcing" ]; then
-            warn "SELinux Enforcing → setting Permissive (temporary, resets on reboot)"
-            if setenforce 0 2>/dev/null; then
-                ok "SELinux → Permissive"
-            else
-                fail "setenforce 0 failed — are you root?"
-                exit 1
-            fi
-        else
-            ok "SELinux: $selinux_mode"
-        fi
-    fi
-
-    # ── Step 2b: noexec on /data ─────────────────────────────────────────────
     # Android mounts /data with noexec — the kernel silently refuses to execute
     # any ELF binary from it, showing "No such file or directory" even when the
     # file exists. Remount exec so chroot can run binaries.
