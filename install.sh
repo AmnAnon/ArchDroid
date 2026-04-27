@@ -130,19 +130,24 @@ echo "  ╚═══════════════════════
 echo -e "${RESET}"
 echo ""
 
+echo ""
+echo -e "  ${GREEN}ArchDroid is ready. Run the setup now:${RESET}"
+echo -e "  ${BOLD}  source ~/.bashrc && archdroid up${RESET}"
+echo ""
+
 if [ -t 0 ]; then
-    printf "  Run full setup now? (bootstrap + enter + pacman -Syu) [Y/n]: "
+    printf "  Run full setup now? (source ~/.bashrc && archdroid up) [Y/n]: "
     read -r run_now </dev/tty
     if [ "${run_now:-Y}" != "n" ] && [ "${run_now:-Y}" != "N" ]; then
+        # Source the config to get PATH for this invocation
+        # shellcheck source=/dev/null
+        [ -f "$SHELL_CONFIG" ] && source "$SHELL_CONFIG" 2>/dev/null || true
+        export PATH="/data/local/bin:$PATH"
         echo ""
         exec "$BIN_PATH" up
     fi
 fi
 
-info "To set up manually, run:"
-echo -e "  ${BOLD}archdroid up${RESET}        # Full setup in one command"
-echo ""
-echo "  Or step by step:"
-echo -e "  ${BOLD}archdroid bootstrap${RESET}   # Install Arch rootfs"
-echo -e "  ${BOLD}archdroid start${RESET}       # Enter chroot"
+info "To set up manually:"
+echo -e "  ${BOLD}  source ~/.bashrc && archdroid up${RESET}"
 echo ""
