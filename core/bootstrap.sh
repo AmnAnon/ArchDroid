@@ -652,6 +652,13 @@ check_system_requirements() {
         [ -L "$ARCH_PATH/lib" ] && [ ! -e "$ARCH_PATH/lib" ] && ln -sf usr/lib "$ARCH_PATH/lib" 2>/dev/null || true
         [ ! -c "$ARCH_PATH/dev/tty" ] && mknod -m 666 "$ARCH_PATH/dev/tty" c 5 0 2>/dev/null || true
 
+        # Mount proc/sys/dev — required for bash to exec in chroot.
+        # Doing it here (not just mkdir) matches what mount_staging does
+        # in the staging validation. Without proc, dynamic linker fails.
+        mount -t proc  proc  "$ARCH_PATH/proc"  2>/dev/null || true
+        mount -t sysfs sysfs "$ARCH_PATH/sys"   2>/dev/null || true
+        mount --rbind  /dev  "$ARCH_PATH/dev"   2>/dev/null || true
+
         chroot "$ARCH_PATH" /bin/bash -c 'exit 0' >/dev/null 2>&1
     ) 2>/dev/null
     local _final_exit=$?
