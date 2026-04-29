@@ -498,9 +498,13 @@ main() {
     case $overall_status in
         0)  ok "SYSTEM READY" ;;
         1)  ok "SYSTEM READY" ;;
-        2)  fail "CHROOT EXECUTION FAILED"
-            echo ""
-            diagnose_chroot_failure
+        2)  if [ ! -d "$ARCH_PATH" ]; then
+                warn "Not bootstrapped — run './archdroid bootstrap' first"
+            else
+                fail "CHROOT EXECUTION FAILED"
+                echo ""
+                diagnose_chroot_failure
+            fi
             ;;
     esac
 

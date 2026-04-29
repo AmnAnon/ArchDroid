@@ -10,7 +10,7 @@ set -euo pipefail
 # ─── VERSION TRACKING ────────────────────────────────────────────────────────
 
 # Current ArchDroid version
-ARCH_VERSION="1.0.0-android-compatible"
+ARCH_VERSION="0.1.0-alpha"
 
 get_current_version() {
     local arch_path="${1:-${ARCH_PATH:-/data/local/arch}}"
